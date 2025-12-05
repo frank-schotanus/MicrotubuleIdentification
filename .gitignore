@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PyTorch
+*.pth
+*.pt
+
+# Training outputs
+output/
+checkpoints/
+logs/
+runs/
+
+# Data (uncomment if you don't want to track data)
+# *.mrc
+# *.MRC
+# annotations.txt
+# predictions.txt
+
+# Results
+evaluation_results.json
+predictions.txt
+*.png
+*.jpg
+*.jpeg
+
+# Temporary files
+*.tmp
+*.bak
