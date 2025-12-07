@@ -260,6 +260,10 @@ def main():
     parser.add_argument('--resize_to', type=int, nargs=2, default=None,
                         metavar=('HEIGHT', 'WIDTH'),
                         help='Resize all images to this size (e.g., --resize_to 512 512). Required for variable-sized images.')
+    parser.add_argument('--include_unlabeled', action='store_true',
+                        help='Include unlabeled images (with empty targets) to reduce false positives')
+    parser.add_argument('--max_unlabeled_ratio', type=float, default=0.2,
+                        help='Maximum ratio of unlabeled to labeled images (default: 0.2 = 20%% negative examples)')
     
     # Model arguments
     parser.add_argument('--model_type', type=str, default='unet',
@@ -322,10 +326,26 @@ def main():
     annotations = load_annotations(args.annotation_file)
     print(f"Loaded annotations for {len(annotations)} images")
     
-    # Get image list (only use annotated images for training)
+    # Get image list
     print("Scanning MRC directory...")
-    image_names = get_image_list(args.mrc_dir, annotations, include_unlabeled=False)
-    print(f"Found {len(image_names)} annotated MRC files")
+    if args.include_unlabeled:
+        print("Including unlabeled images to reduce false positives...")
+        all_images = get_image_list(args.mrc_dir, annotations, include_unlabeled=True)
+        annotated = [img for img in all_images if img in annotations]
+        unlabeled = [img for img in all_images if img not in annotations]
+        
+        # Limit unlabeled images based on ratio
+        max_unlabeled = int(len(annotated) * args.max_unlabeled_ratio)
+        if len(unlabeled) > max_unlabeled:
+            import random
+            random.seed(args.random_seed)
+            unlabeled = random.sample(unlabeled, max_unlabeled)
+        
+        image_names = annotated + unlabeled
+        print(f"Found {len(annotated)} annotated + {len(unlabeled)} unlabeled = {len(image_names)} total MRC files")
+    else:
+        image_names = get_image_list(args.mrc_dir, annotations, include_unlabeled=False)
+        print(f"Found {len(image_names)} annotated MRC files")
     
     # Split dataset
     print("Splitting dataset...")
