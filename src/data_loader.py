@@ -26,10 +26,18 @@ def load_annotations(annotation_file: str) -> Dict[str, List[Tuple[float, float]
     df = pd.read_csv(annotation_file, sep='\t', header=None, 
                      names=['image_name', 'x_coord', 'y_coord'])
     
+    # Ensure coordinates are numeric (convert from strings if needed)
+    df['x_coord'] = pd.to_numeric(df['x_coord'], errors='coerce')
+    df['y_coord'] = pd.to_numeric(df['y_coord'], errors='coerce')
+    
+    # Drop any rows where coordinates couldn't be converted
+    df = df.dropna(subset=['x_coord', 'y_coord'])
+    
     # Group by image_name and collect coordinates
     annotations = {}
     for image_name, group in df.groupby('image_name'):
-        coords = list(zip(group['x_coord'].values, group['y_coord'].values))
+        # Explicitly convert to Python float to ensure numeric types
+        coords = [(float(x), float(y)) for x, y in zip(group['x_coord'].values, group['y_coord'].values)]
         annotations[image_name] = coords
     
     return annotations

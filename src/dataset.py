@@ -36,7 +36,8 @@ class MicrotubuleDataset(Dataset):
                  normalization: str = 'zscore',
                  heatmap_sigma: float = 3.0,
                  distance_max: float = 50.0,
-                 transform: Optional[Callable] = None):
+                 transform: Optional[Callable] = None,
+                 resize_to: Optional[Tuple[int, int]] = None):
         """
         Initialize the dataset.
         
@@ -49,6 +50,7 @@ class MicrotubuleDataset(Dataset):
             heatmap_sigma: Sigma for Gaussian heatmaps (used if target_type='heatmap')
             distance_max: Max distance for distance transform (used if target_type='distance')
             transform: Optional transform to apply to images (for data augmentation)
+            resize_to: Optional (height, width) to resize all images to. If None, images keep original size.
         """
         self.mrc_dir = Path(mrc_dir)
         self.image_names = image_names
@@ -58,6 +60,7 @@ class MicrotubuleDataset(Dataset):
         self.heatmap_sigma = heatmap_sigma
         self.distance_max = distance_max
         self.transform = transform
+        self.resize_to = resize_to
         
         # Verify that MRC files exist
         self._verify_files()
@@ -101,13 +104,36 @@ class MicrotubuleDataset(Dataset):
             mrc_path = self.mrc_dir / f"{image_name}.MRC"
         
         image = load_mrc_image(str(mrc_path))
-        image_shape = image.shape  # (H, W)
+        original_shape = image.shape  # (H, W)
         
         # Normalize image
         image = normalize_image(image, method=self.normalization)
         
         # Get annotations for this image (may be empty list)
-        coords = self.annotations.get(image_name, [])
+        coords = self.annotations.get(image_name, []).copy()  # Copy to avoid modifying original
+        
+        # Ensure coordinates are numeric (convert to float explicitly)
+        coords = [(float(x), float(y)) for x, y in coords]
+        
+        # Resize image and adjust coordinates if needed
+        if self.resize_to is not None:
+            from scipy.ndimage import zoom
+            target_h, target_w = self.resize_to
+            orig_h, orig_w = original_shape
+            
+            # Calculate scaling factors
+            scale_h = target_h / orig_h
+            scale_w = target_w / orig_w
+            
+            # Resize image
+            image = zoom(image, (scale_h, scale_w), order=1)
+            
+            # Scale coordinates
+            coords = [(x * scale_w, y * scale_h) for x, y in coords]
+            
+            image_shape = self.resize_to
+        else:
+            image_shape = original_shape
         
         # Create target based on target_type
         if self.target_type == 'heatmap':
@@ -139,7 +165,8 @@ class MicrotubuleDataset(Dataset):
             'target': target_tensor,
             'coords': coords,
             'name': image_name,
-            'image_shape': image_shape
+            'image_shape': image_shape,
+            'original_shape': original_shape
         }
 
 

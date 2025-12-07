@@ -34,7 +34,9 @@ class Trainer:
                  device: torch.device,
                  output_dir: str,
                  max_epochs: int = 100,
-                 patience: int = 10):
+                 patience: int = 10,
+                 use_amp: bool = False,
+                 gradient_accumulation_steps: int = 1):
         """
         Args:
             model: Neural network model
@@ -46,6 +48,8 @@ class Trainer:
             output_dir: Directory to save checkpoints and logs
             max_epochs: Maximum number of training epochs
             patience: Early stopping patience (epochs without improvement)
+            use_amp: Use automatic mixed precision training
+            gradient_accumulation_steps: Steps to accumulate gradients
         """
         self.model = model
         self.train_loader = train_loader
@@ -56,6 +60,11 @@ class Trainer:
         self.output_dir = Path(output_dir)
         self.max_epochs = max_epochs
         self.patience = patience
+        self.use_amp = use_amp
+        self.gradient_accumulation_steps = gradient_accumulation_steps
+        
+        # Setup automatic mixed precision
+        self.scaler = torch.cuda.amp.GradScaler() if use_amp else None
         
         # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -81,25 +90,42 @@ class Trainer:
         n_batches = 0
         
         pbar = tqdm(self.train_loader, desc=f"Epoch {self.current_epoch} [Train]")
-        for batch in pbar:
+        for batch_idx, batch in enumerate(pbar):
             images = batch['image'].to(self.device)
             targets = batch['target'].to(self.device)
             
-            # Forward pass
-            self.optimizer.zero_grad()
-            outputs = self.model(images)
-            loss = self.criterion(outputs, targets)
+            # Forward pass with optional mixed precision
+            if self.use_amp:
+                with torch.cuda.amp.autocast():
+                    outputs = self.model(images)
+                    loss = self.criterion(outputs, targets)
+                    loss = loss / self.gradient_accumulation_steps
+            else:
+                outputs = self.model(images)
+                loss = self.criterion(outputs, targets)
+                loss = loss / self.gradient_accumulation_steps
             
             # Backward pass
-            loss.backward()
-            self.optimizer.step()
+            if self.use_amp:
+                self.scaler.scale(loss).backward()
+            else:
+                loss.backward()
             
-            # Accumulate loss
-            total_loss += loss.item()
+            # Update weights after accumulating gradients
+            if (batch_idx + 1) % self.gradient_accumulation_steps == 0:
+                if self.use_amp:
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    self.optimizer.step()
+                self.optimizer.zero_grad()
+            
+            # Accumulate loss (multiply back to get true loss)
+            total_loss += loss.item() * self.gradient_accumulation_steps
             n_batches += 1
             
             # Update progress bar
-            pbar.set_postfix({'loss': loss.item()})
+            pbar.set_postfix({'loss': loss.item() * self.gradient_accumulation_steps})
         
         avg_loss = total_loss / n_batches
         return avg_loss
@@ -121,9 +147,14 @@ class Trainer:
                 images = batch['image'].to(self.device)
                 targets = batch['target'].to(self.device)
                 
-                # Forward pass
-                outputs = self.model(images)
-                loss = self.criterion(outputs, targets)
+                # Forward pass with optional mixed precision
+                if self.use_amp:
+                    with torch.cuda.amp.autocast():
+                        outputs = self.model(images)
+                        loss = self.criterion(outputs, targets)
+                else:
+                    outputs = self.model(images)
+                    loss = self.criterion(outputs, targets)
                 
                 # Accumulate loss
                 total_loss += loss.item()
@@ -226,6 +257,9 @@ def main():
                         help='Sigma for Gaussian heatmaps')
     parser.add_argument('--augment', action='store_true',
                         help='Use data augmentation')
+    parser.add_argument('--resize_to', type=int, nargs=2, default=None,
+                        metavar=('HEIGHT', 'WIDTH'),
+                        help='Resize all images to this size (e.g., --resize_to 512 512). Required for variable-sized images.')
     
     # Model arguments
     parser.add_argument('--model_type', type=str, default='unet',
@@ -258,6 +292,12 @@ def main():
     parser.add_argument('--device', type=str, default='auto',
                         help='Device to use (auto, cuda, mps, or cpu)')
     
+    # Memory optimization arguments
+    parser.add_argument('--use_amp', action='store_true',
+                        help='Use automatic mixed precision (AMP) training to save memory')
+    parser.add_argument('--gradient_accumulation_steps', type=int, default=1,
+                        help='Number of steps to accumulate gradients (effective_batch_size = batch_size * gradient_accumulation_steps)')
+    
     args = parser.parse_args()
     
     # Set random seeds
@@ -282,10 +322,10 @@ def main():
     annotations = load_annotations(args.annotation_file)
     print(f"Loaded annotations for {len(annotations)} images")
     
-    # Get image list
+    # Get image list (only use annotated images for training)
     print("Scanning MRC directory...")
-    image_names = get_image_list(args.mrc_dir, annotations, include_unlabeled=True)
-    print(f"Found {len(image_names)} MRC files")
+    image_names = get_image_list(args.mrc_dir, annotations, include_unlabeled=False)
+    print(f"Found {len(image_names)} annotated MRC files")
     
     # Split dataset
     print("Splitting dataset...")
@@ -313,6 +353,11 @@ def main():
     print("Creating datasets...")
     augmentation = SimpleAugmentation() if args.augment else None
     
+    # Convert resize_to to tuple if provided
+    resize_to = tuple(args.resize_to) if args.resize_to else None
+    if resize_to:
+        print(f"All images will be resized to {resize_to[0]}x{resize_to[1]}")
+    
     train_dataset = MicrotubuleDataset(
         mrc_dir=args.mrc_dir,
         image_names=train_names,
@@ -320,7 +365,8 @@ def main():
         target_type=args.target_type,
         normalization=args.normalization,
         heatmap_sigma=args.heatmap_sigma,
-        transform=augmentation
+        transform=augmentation,
+        resize_to=resize_to
     )
     
     val_dataset = MicrotubuleDataset(
@@ -330,7 +376,8 @@ def main():
         target_type=args.target_type,
         normalization=args.normalization,
         heatmap_sigma=args.heatmap_sigma,
-        transform=None  # No augmentation for validation
+        transform=None,  # No augmentation for validation
+        resize_to=resize_to
     )
     
     # Create data loaders
@@ -380,6 +427,14 @@ def main():
     with open(output_dir / 'config.json', 'w') as f:
         json.dump(config, f, indent=2)
     
+    # Print memory optimization settings
+    if args.use_amp:
+        print("Using automatic mixed precision (AMP) training")
+    if args.gradient_accumulation_steps > 1:
+        effective_batch_size = args.batch_size * args.gradient_accumulation_steps
+        print(f"Using gradient accumulation: {args.gradient_accumulation_steps} steps")
+        print(f"Effective batch size: {effective_batch_size}")
+    
     # Create trainer and start training
     trainer = Trainer(
         model=model,
@@ -390,7 +445,9 @@ def main():
         device=device,
         output_dir=args.output_dir,
         max_epochs=args.max_epochs,
-        patience=args.patience
+        patience=args.patience,
+        use_amp=args.use_amp,
+        gradient_accumulation_steps=args.gradient_accumulation_steps
     )
     
     trainer.train()

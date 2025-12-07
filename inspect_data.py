@@ -126,10 +126,22 @@ def check_coordinate_validity(mrc_dir: str, annotations: dict) -> dict:
             height, width = image.shape
             
             for x, y in coords:
-                if not (0 <= x < width and 0 <= y < height):
+                # Ensure coordinates are numeric
+                try:
+                    x_val = float(x)
+                    y_val = float(y)
+                except (ValueError, TypeError):
                     invalid_coords.append({
                         'image': image_name,
                         'coord': (x, y),
+                        'issue': f'Coordinate is not numeric: ({x}, {y})'
+                    })
+                    continue
+                
+                if not (0 <= x_val < width and 0 <= y_val < height):
+                    invalid_coords.append({
+                        'image': image_name,
+                        'coord': (x_val, y_val),
                         'image_size': (width, height),
                         'issue': 'Coordinate out of bounds'
                     })

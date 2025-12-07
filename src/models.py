@@ -196,6 +196,10 @@ def create_model(model_type: str = 'unet', **kwargs) -> nn.Module:
     if model_type == 'unet':
         return UNet(**kwargs)
     elif model_type == 'simple':
+        # SimpleConvNet uses 'base_features' instead of 'init_features'
+        # Map the parameter name if needed
+        if 'init_features' in kwargs:
+            kwargs['base_features'] = kwargs.pop('init_features')
         return SimpleConvNet(**kwargs)
     else:
         raise ValueError(f"Unknown model_type: {model_type}")
