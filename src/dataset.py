@@ -121,19 +121,34 @@ class MicrotubuleDataset(Dataset):
             target_h, target_w = self.resize_to
             orig_h, orig_w = original_shape
             
-            # Calculate scaling factors
-            scale_h = target_h / orig_h
-            scale_w = target_w / orig_w
-            
-            # Resize image
-            image = zoom(image, (scale_h, scale_w), order=1)
-            
-            # Scale coordinates
-            coords = [(x * scale_w, y * scale_h) for x, y in coords]
+            # Skip resizing if image is already the target size
+            if (orig_h, orig_w) != (target_h, target_w):
+                # Calculate scaling factors
+                scale_h = target_h / orig_h
+                scale_w = target_w / orig_w
+                
+                # Resize image (ensure float32 output)
+                image = zoom(image, (scale_h, scale_w), order=1).astype(np.float32)
+                
+                # Scale coordinates
+                coords = [(x * scale_w, y * scale_h) for x, y in coords]
             
             image_shape = self.resize_to
         else:
             image_shape = original_shape
+        
+        # Ensure image is always float32 and has exactly the expected shape
+        image = image.astype(np.float32)
+        
+        # Verify the image shape matches expectations
+        if self.resize_to is not None:
+            expected_shape = tuple(self.resize_to)
+            if image.shape != expected_shape:
+                raise RuntimeError(
+                    f"Image {image_name} has unexpected shape after resize: "
+                    f"got {image.shape}, expected {expected_shape}. "
+                    f"Original shape was {original_shape}."
+                )
         
         # Create target based on target_type
         if self.target_type == 'heatmap':
@@ -152,11 +167,11 @@ class MicrotubuleDataset(Dataset):
         if self.transform is not None:
             image, target = self.transform(image, target, coords)
         
-        # Convert to tensors
-        image_tensor = torch.from_numpy(image).unsqueeze(0)  # Add channel dim: (1, H, W)
+        # Convert to tensors with explicit float32 dtype
+        image_tensor = torch.from_numpy(image.astype(np.float32)).unsqueeze(0).float()  # Add channel dim: (1, H, W)
         
         if self.target_type != 'points':
-            target_tensor = torch.from_numpy(target).unsqueeze(0)  # (1, H, W)
+            target_tensor = torch.from_numpy(target.astype(np.float32)).unsqueeze(0).float()  # (1, H, W)
         else:
             target_tensor = coords  # Keep as list for 'points' mode
         
