@@ -95,16 +95,4 @@ Computes precision, recall, and F1 by matching predictions to ground truth withi
 
 Run `python train.py --help` or `python inference.py --help` for all options.
 
-## Project Structure
 
-```
-├── src/
-│   ├── data_loader.py   # MRC loading, annotations, preprocessing
-│   ├── dataset.py       # PyTorch Dataset with augmentation
-│   └── models.py        # U-Net and SimpleConvNet architectures
-├── train.py             # Training script
-├── inference.py         # Prediction script
-├── evaluate.py          # Evaluation metrics
-├── test_installation.py # Dependency check
-└── requirements.txt
-```
