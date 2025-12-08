@@ -1,6 +1,6 @@
 # Microtubule Detection
 
-PyTorch pipeline for detecting microtubules in low-magnification cryo-EM images (2D MRC files).
+Detects microtubules in low-magnification cryo-EM images using a U-Net model trained on point annotations.
 
 ## Setup
 
@@ -10,23 +10,25 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+Verify installation:
+
+```bash
+python test_installation.py
+```
+
 ## Data Format
 
-**MRC images**: Single 2D grayscale `.mrc` files.
+**Images**: 2D grayscale MRC files (`.mrc`).
 
-**Annotations**: Tab-separated file with point coordinates:
+**Annotations**: Tab-separated file where each row is one microtubule location:
 
 ```
 image_name	x_coord	y_coord
-24dec20a_00035gr_00051sq_v01_00003hl	486	520
-24dec20a_00035gr_00051sq_v01_00003hl	918	474
+24dec20a_00035gr_00051sq_00003hl	486	520
+24dec20a_00035gr_00051sq_00003hl	918	474
 ```
 
-Each row marks one microtubule. Multiple rows per image = multiple microtubules.
-
-## Usage
-
-### Train
+## Training
 
 ```bash
 python train.py \
@@ -39,9 +41,13 @@ python train.py \
   --augment
 ```
 
-Saves checkpoints to `output/exp1/best_model.pth`.
+Outputs:
 
-### Inference
+- `best_model.pth` — model with lowest validation loss
+- `history.json` — training/validation loss per epoch
+- `split.json` — train/val/test image names
+
+## Inference
 
 Single image:
 
@@ -52,7 +58,7 @@ python inference.py \
   --model_type unet
 ```
 
-Batch:
+Directory of images:
 
 ```bash
 python inference.py \
@@ -62,7 +68,7 @@ python inference.py \
   --model_type unet
 ```
 
-### Evaluate
+## Evaluation
 
 ```bash
 python evaluate.py \
@@ -72,16 +78,33 @@ python evaluate.py \
   --distance_threshold 10.0
 ```
 
-Reports precision, recall, and F1.
+Computes precision, recall, and F1 by matching predictions to ground truth within the distance threshold.
 
-## Options
+## Parameters
 
-| Flag                 | Description                               |
-| -------------------- | ----------------------------------------- |
-| `--model_type`       | `unet` (default) or `simple`              |
-| `--normalization`    | `zscore`, `minmax`, or `percentile`       |
-| `--heatmap_sigma`    | Gaussian sigma for targets (default: 3.0) |
-| `--detection_method` | `fixed` or `adaptive`                     |
-| `--augment`          | Enable flips/rotations                    |
+| Flag                 | Default  | Description                          |
+| -------------------- | -------- | ------------------------------------ |
+| `--model_type`       | `unet`   | `unet` or `simple`                   |
+| `--normalization`    | `zscore` | `zscore`, `minmax`, or `percentile`  |
+| `--heatmap_sigma`    | `3.0`    | Gaussian sigma for target heatmaps   |
+| `--detection_method` | `fixed`  | `fixed` or `adaptive` peak detection |
+| `--threshold`        | `0.5`    | Detection threshold (fixed method)   |
+| `--min_distance`     | `5`      | Minimum pixels between detections    |
+| `--augment`          | off      | Enable random flips and rotations    |
+| `--patience`         | `10`     | Early stopping patience              |
 
-See `python train.py --help` for full list.
+Run `python train.py --help` or `python inference.py --help` for all options.
+
+## Project Structure
+
+```
+├── src/
+│   ├── data_loader.py   # MRC loading, annotations, preprocessing
+│   ├── dataset.py       # PyTorch Dataset with augmentation
+│   └── models.py        # U-Net and SimpleConvNet architectures
+├── train.py             # Training script
+├── inference.py         # Prediction script
+├── evaluate.py          # Evaluation metrics
+├── test_installation.py # Dependency check
+└── requirements.txt
+```
